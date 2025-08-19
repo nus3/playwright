@@ -3,82 +3,26 @@
  * PlaywrightのFirefoxビルドが必要
  */
 
-const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+import { spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import path from 'path';
+import os from 'os';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-class RealJugglerController {
-  constructor() {
-    this.browserProcess = null;
-    this.messageId = 0;
-    this.pendingMessages = new Map();
-    this.frameId = null;
-    this.targetId = null;
-    this.browserContextId = null;
-    this.executionContextId = null;
-    this.sessionId = null;
-    
-    // Pipe通信用のバッファ
-    this.pendingBuffers = [];
-  }
+// Juggler制御用の状態管理
+function createJugglerController() {
+  let browserProcess = null;
+  let messageId = 0;
+  const pendingMessages = new Map();
+  let frameId = null;
+  let targetId = null;
+  let browserContextId = null;
+  let executionContextId = null;
+  let sessionId = null;
+  const pendingBuffers = [];
 
-  async launch() {
-    console.log('Juggler: PlaywrightのFirefoxブラウザを起動中...');
-    
-    // PlaywrightのFirefoxパスを取得
-    const firefoxPath = this.getPlaywrightFirefoxPath();
-    
-    if (!firefoxPath) {
-      throw new Error('PlaywrightのFirefoxが見つかりません。先に install-playwright-firefox.js を実行してください。');
-    }
-    
-    console.log(`Juggler: ${firefoxPath} を使用`);
-    
-    // 一時プロファイルディレクトリを作成
-    const tempDir = path.join(os.tmpdir(), `juggler-profile-${Date.now()}`);
-    fs.mkdirSync(tempDir, { recursive: true });
-    
-    // FirefoxをJugglerモードで起動
-    // 注: Playwrightの内部実装を参考にした起動オプション
-    this.browserProcess = spawn(firefoxPath, [
-      '--headless',
-      '--no-remote',
-      '--foreground',
-      '--profile', tempDir,
-      '--juggler-pipe',  // Jugglerをパイプモードで有効化
-    ], {
-      stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'], // stdin, stdout, stderr, および2つの追加パイプ
-      env: { ...process.env }
-    });
-
-    this.browserProcess.on('error', (err) => {
-      console.error('ブラウザ起動エラー:', err);
-    });
-
-    // デバッグ: stdoutとstderrを出力
-    this.browserProcess.stdout.on('data', (data) => {
-      if (process.env.DEBUG_BROWSER) {
-        console.log('Firefox stdout:', data.toString());
-      }
-    });
-    
-    this.browserProcess.stderr.on('data', (data) => {
-      if (process.env.DEBUG_BROWSER) {
-        console.log('Firefox stderr:', data.toString());
-      }
-    });
-
-    // Jugglerプロトコルの接続をセットアップ
-    this.setupJugglerConnection();
-    
-    // 初期化メッセージを送信
-    await this.initialize();
-    
-    console.log('Juggler: 接続成功！');
-  }
-
-  getPlaywrightFirefoxPath() {
+  const getPlaywrightFirefoxPath = () => {
     // Playwrightがインストールされている場合
     try {
       const playwright = require('playwright');
@@ -88,257 +32,282 @@ class RealJugglerController {
     }
     
     // 手動でパスを探す
-    const possiblePaths = [
-      // macOS
-      path.join(os.homedir(), '.cache/ms-playwright/firefox-*/firefox/Firefox.app/Contents/MacOS/firefox'),
-      // Linux
-      path.join(os.homedir(), '.cache/ms-playwright/firefox-*/firefox/firefox'),
-      // Windows
-      path.join(os.homedir(), 'AppData/Local/ms-playwright/firefox-*/firefox/firefox.exe'),
-    ];
+    const playwrightCache = path.join(os.homedir(), 'Library/Caches/ms-playwright');
     
-    for (const pattern of possiblePaths) {
-      const glob = require('glob');
-      const matches = glob.sync(pattern);
-      if (matches.length > 0) {
-        return matches[0];
+    if (require('fs').existsSync(playwrightCache)) {
+      const dirs = require('fs').readdirSync(playwrightCache);
+      const firefoxDir = dirs.find(d => d.startsWith('firefox-'));
+      if (firefoxDir) {
+        const firefoxMacPath = path.join(playwrightCache, firefoxDir, 'firefox/Nightly.app/Contents/MacOS/firefox');
+        const firefoxLinuxPath = path.join(playwrightCache, firefoxDir, 'firefox/firefox');
+        const firefoxWinPath = path.join(playwrightCache, firefoxDir, 'firefox/firefox.exe');
+        
+        if (require('fs').existsSync(firefoxMacPath)) return firefoxMacPath;
+        if (require('fs').existsSync(firefoxLinuxPath)) return firefoxLinuxPath;
+        if (require('fs').existsSync(firefoxWinPath)) return firefoxWinPath;
       }
     }
     
     return null;
-  }
+  };
 
-  setupJugglerConnection() {
-    // stdio[3]とstdio[4]を使用してJugglerと通信
-    const pipeWrite = this.browserProcess.stdio[3];
-    const pipeRead = this.browserProcess.stdio[4];
-    
-    if (!pipeWrite || !pipeRead) {
-      console.log('⚠️  Jugglerパイプが利用できません。シミュレーションモードで実行します。');
-      this.simulationMode = true;
-      return;
-    }
-    
-    // 受信メッセージの処理
-    pipeRead.on('data', (buffer) => {
-      this.handleIncomingData(buffer);
+  const setupJugglerConnection = () => {
+    // パイプfd:3（読み取り）からJugglerメッセージを受信
+    browserProcess.stdio[3].on('data', (data) => {
+      pendingBuffers.push(data);
+      processJugglerMessages();
     });
-    
-    pipeRead.on('close', () => {
-      console.log('Juggler: 接続が閉じられました');
-    });
-    
-    // 送信用のパイプを保存
-    this.pipeWrite = pipeWrite;
-  }
+  };
 
-  handleIncomingData(buffer) {
-    // メッセージは'\0'で区切られている
-    let end = buffer.indexOf('\0');
-    if (end === -1) {
-      this.pendingBuffers.push(buffer);
-      return;
-    }
+  const processJugglerMessages = () => {
+    if (pendingBuffers.length === 0) return;
     
-    this.pendingBuffers.push(buffer.slice(0, end));
-    const message = Buffer.concat(this.pendingBuffers).toString();
-    this.pendingBuffers = [];
+    const buffer = Buffer.concat(pendingBuffers);
+    pendingBuffers.length = 0;
     
-    try {
-      const parsed = JSON.parse(message);
-      
-      if (process.env.DEBUG_PROTOCOL) {
-        console.log('Juggler receive:', JSON.stringify(parsed, null, 2));
-      }
-      
-      // レスポンスの処理
-      if (parsed.id && this.pendingMessages.has(parsed.id)) {
-        const resolve = this.pendingMessages.get(parsed.id);
-        this.pendingMessages.delete(parsed.id);
-        resolve(parsed);
-      }
-      
-      // イベントの処理
-      if (parsed.method === 'Page.frameAttached') {
-        this.frameId = parsed.params.frameId;
-        console.log(`Juggler: フレームID ${this.frameId} を取得`);
-      }
-      
-      if (parsed.method === 'Runtime.executionContextCreated') {
-        this.executionContextId = parsed.params.executionContextId;
-        console.log(`Juggler: 実行コンテキストID ${this.executionContextId} を取得`);
-      }
-      
-      if (parsed.method === 'Browser.attachedToTarget') {
-        this.sessionId = parsed.params.sessionId;
-        this.targetId = parsed.params.targetInfo.targetId;
-        this.browserContextId = parsed.params.targetInfo.browserContextId;
-        console.log(`Juggler: セッションID ${this.sessionId} を取得`);
-        console.log(`Juggler: ターゲットID ${this.targetId} を取得`);
-      }
-      
-    } catch (e) {
-      console.error('Jugglerメッセージのパースエラー:', e);
-    }
+    const messages = buffer.toString().split('\n').filter(line => line.trim());
     
-    // 残りのデータを処理
-    let start = end + 1;
-    if (start < buffer.length) {
-      this.handleIncomingData(buffer.slice(start));
+    for (const messageStr of messages) {
+      try {
+        const message = JSON.parse(messageStr);
+        
+        if (process.env.DEBUG_PROTOCOL) {
+          console.log('Juggler Recv:', JSON.stringify(message));
+        }
+        
+        if (message.sessionId && !sessionId) {
+          sessionId = message.sessionId;
+          console.log(`Juggler: セッションID ${sessionId} を取得`);
+        }
+        
+        if (message.method === 'Target.targetCreated') {
+          targetId = message.params.targetId;
+          console.log(`Juggler: ターゲットID ${targetId} を取得`);
+        }
+        
+        if (message.method === 'Runtime.executionContextCreated') {
+          if (!executionContextId) {
+            executionContextId = message.params.context.id;
+            console.log(`Juggler: 実行コンテキストID ${executionContextId} を取得`);
+          } else {
+            console.log(`Juggler: 実行コンテキストID ${message.params.context.id} を取得`);
+          }
+        }
+        
+        if (message.method === 'Page.frameAttached' || message.method === 'Page.frameNavigated') {
+          if (!frameId) {
+            frameId = message.params.frameId || message.params.frame?.frameId;
+            if (frameId) {
+              console.log(`Juggler: フレームID ${frameId} を取得`);
+            }
+          }
+        }
+        
+        if (message.id && pendingMessages.has(message.id)) {
+          const { resolve, reject } = pendingMessages.get(message.id);
+          pendingMessages.delete(message.id);
+          
+          if (message.error) {
+            reject(new Error(message.error.message));
+          } else {
+            resolve(message.result || message);
+          }
+        }
+      } catch (e) {
+        console.warn('Juggler メッセージ解析エラー:', e.message);
+      }
     }
-  }
+  };
 
-  async sendCommand(method, params = {}, useSession = false) {
-    if (this.simulationMode) {
-      return this.simulateCommand(method, params);
-    }
-    
-    const id = ++this.messageId;
+  const sendJugglerCommand = async (method, params = {}) => {
+    const id = ++messageId;
     const message = { id, method, params };
     
-    // Page/Runtime操作にはsessionIdが必要
-    if (useSession && this.sessionId) {
-      message.sessionId = this.sessionId;
-    }
-    
     if (process.env.DEBUG_PROTOCOL) {
-      console.log('Juggler send:', JSON.stringify(message, null, 2));
+      console.log('Juggler Send:', JSON.stringify(message));
     }
     
     return new Promise((resolve, reject) => {
-      this.pendingMessages.set(id, resolve);
+      pendingMessages.set(id, { resolve, reject });
       
-      // メッセージを送信
-      this.pipeWrite.write(JSON.stringify(message));
-      this.pipeWrite.write('\0');
+      const messageStr = JSON.stringify(message) + '\n';
+      browserProcess.stdio[4].write(messageStr);
       
-      // タイムアウト設定
       setTimeout(() => {
-        if (this.pendingMessages.has(id)) {
-          this.pendingMessages.delete(id);
-          reject(new Error(`Command timeout: ${method}`));
+        if (pendingMessages.has(id)) {
+          pendingMessages.delete(id);
+          reject(new Error(`コマンドタイムアウト: ${method}`));
         }
-      }, 10000);
+      }, 30000);
     });
-  }
+  };
 
-  async simulateCommand(method, params) {
-    // シミュレーションモード
-    console.log(`Juggler (シミュレート): ${method}`, params);
-    await new Promise(r => setTimeout(r, 100));
-    return { result: {} };
-  }
+  const initialize = async () => {
+    // Jugglerプロトコルの初期化
+    await sendJugglerCommand('Browser.enable');
+    await sendJugglerCommand('Target.setDiscoverTargets', { discover: true });
+    
+    // しばらく待って、初期のイベントを受信
+    await new Promise(r => setTimeout(r, 2000));
+    
+    console.log('Juggler: ブラウザ機能を有効化しました');
+  };
 
-  async initialize() {
-    // Browser機能を有効化（attachToDefaultContextパラメータが必須）
-    await this.sendCommand('Browser.enable', {
-      attachToDefaultContext: true
+  const launch = async () => {
+    console.log('Juggler: PlaywrightのFirefoxブラウザを起動中...');
+    
+    const firefoxPath = getPlaywrightFirefoxPath();
+    
+    if (!firefoxPath) {
+      throw new Error('PlaywrightのFirefoxが見つかりません。先に install-playwright-firefox.js を実行してください。');
+    }
+    
+    console.log(`Juggler: ${firefoxPath} を使用`);
+    
+    const tempDir = path.join(os.tmpdir(), `juggler-profile-${Date.now()}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    
+    browserProcess = spawn(firefoxPath, [
+      '--headless',
+      '--no-remote',
+      '--foreground',
+      '--profile', tempDir,
+      '--juggler-pipe',
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
+      env: { ...process.env }
+    });
+
+    browserProcess.on('error', (err) => {
+      console.error('ブラウザ起動エラー:', err);
+    });
+
+    browserProcess.stdout.on('data', (data) => {
+      if (process.env.DEBUG_BROWSER) {
+        console.log('Firefox stdout:', data.toString());
+      }
     });
     
-    // デフォルトコンテキストのイベントを待つ
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Runtime機能を有効化してexecutionContextを取得
-    await this.sendCommand('Runtime.enable');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    console.log(`Juggler: ブラウザ機能を有効化しました`);
-  }
+    browserProcess.stderr.on('data', (data) => {
+      if (process.env.DEBUG_BROWSER) {
+        console.log('Firefox stderr:', data.toString());
+      }
+    });
 
-  async createNewPage() {
+    setupJugglerConnection();
+    
+    await initialize();
+    
+    console.log('Juggler: 接続成功！');
+  };
+
+  const createNewPage = async () => {
     console.log('Juggler: 新しいページを作成中...');
     
-    // 新しいページを作成
-    const pageResponse = await this.sendCommand('Browser.newPage', {
-      browserContextId: this.browserContextId || undefined
+    const contextResult = await sendJugglerCommand('Browser.createBrowserContext', {
+      removeOnDetach: true
+    });
+    browserContextId = contextResult.browserContextId;
+    
+    const pageResult = await sendJugglerCommand('Browser.newPage', {
+      browserContextId: browserContextId
     });
     
-    this.targetId = pageResponse.result?.targetId;
-    
-    // 少し待ってからframeAttachedイベントを待つ（新しいセッションIDを受信するため）
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(r => setTimeout(r, 1000));
     
     console.log('Juggler: 新しいページを作成しました');
-  }
+    return pageResult;
+  };
 
-  async navigateToPage(url) {
+  const navigateToPage = async (url) => {
     console.log(`Juggler: ${url} に移動中...`);
     
-    // Jugglerの特徴: frameIdが必須、sessionIdも必要
-    const response = await this.sendCommand('Page.navigate', {
-      url: url,
-      frameId: this.frameId || 'mainframe-11'
-    }, true);
+    if (!frameId) {
+      throw new Error('frameIdが設定されていません');
+    }
     
-    // ナビゲーション完了を待つ
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    const response = await sendJugglerCommand('Page.navigate', {
+      frameId: frameId,
+      url: url
+    });
+    
+    await new Promise(r => setTimeout(r, 3000));
     
     console.log(`Juggler: ページ移動完了`);
     return response;
-  }
+  };
 
-  async getPageTitle() {
+  const getPageTitle = async () => {
     console.log('Juggler: ページタイトルを取得中...');
     
-    const result = await this.sendCommand('Runtime.evaluate', {
-      expression: 'document.title',
-      executionContextId: this.executionContextId || 'id-3',
-      returnByValue: true
-    }, true);
+    if (!frameId || !executionContextId) {
+      throw new Error('frameIdまたはexecutionContextIdが設定されていません');
+    }
     
-    const title = result.result?.result?.value || 'タイトル取得失敗';
-    console.log(`Juggler: ページタイトル = "${title}"`);
-    return title;
-  }
+    try {
+      const result = await sendJugglerCommand('Runtime.evaluate', {
+        frameId: frameId,
+        expression: 'document.title',
+        returnByValue: true
+      });
+      
+      const title = result.result?.value || 'タイトル取得失敗';
+      console.log(`Juggler: ページタイトル = "${title}"`);
+      return title;
+    } catch (error) {
+      console.log(`Juggler: ページタイトル = "タイトル取得失敗"`);
+      return 'タイトル取得失敗';
+    }
+  };
 
-  async takeScreenshot() {
+  const takeScreenshot = async () => {
     console.log('Juggler: スクリーンショットを取得中...');
     
-    const response = await this.sendCommand('Page.screenshot', {
+    const response = await sendJugglerCommand('Page.screenshot', {
       mimeType: 'image/png',
-      clip: {
-        x: 0,
-        y: 0,
-        width: 1280,
-        height: 720
-      }
-    }, true);
+      fullPage: false
+    });
     
-    const screenshotData = response.result?.data;
-    if (screenshotData) {
-      console.log('Juggler: スクリーンショットを取得しました');
-      return Buffer.from(screenshotData, 'base64');
-    } else {
-      console.log('Juggler: スクリーンショット取得失敗（シミュレート）');
-      // ダミーの1x1ピクセルPNG
-      return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
-    }
-  }
+    console.log('Juggler: スクリーンショットを取得しました');
+    return Buffer.from(response.data, 'base64');
+  };
 
-  async close() {
-    if (this.browserProcess) {
-      // Browserを閉じる
+  const close = async () => {
+    browserProcess?.stdio[3]?.removeAllListeners();
+    browserProcess?.stdio[4]?.removeAllListeners();
+    
+    if (browserProcess) {
       try {
-        await this.sendCommand('Browser.close');
+        await sendJugglerCommand('Browser.close');
       } catch (e) {
-        // エラーは無視
+        // 接続が既に閉じている可能性
       }
       
-      // プロセスを終了
-      this.browserProcess.kill('SIGTERM');
+      browserProcess.kill('SIGTERM');
       await new Promise(r => setTimeout(r, 500));
-      if (!this.browserProcess.killed) {
-        this.browserProcess.kill('SIGKILL');
+      if (!browserProcess.killed) {
+        browserProcess.kill('SIGKILL');
       }
+      
+      console.log('Juggler: 接続が閉じられました');
     }
     
     console.log('Juggler: ブラウザを終了しました');
-  }
+  };
+
+  return {
+    launch,
+    createNewPage,
+    navigateToPage,
+    getPageTitle,
+    takeScreenshot,
+    close
+  };
 }
 
-// デモ実行
-async function demonstrateRealJuggler() {
-  const controller = new RealJugglerController();
+// デモ実行関数
+export async function demonstrateRealJuggler() {
+  const controller = createJugglerController();
   
   try {
     console.log('=== Real Juggler Protocol (Firefox) 実動作デモ ===');
@@ -347,22 +316,17 @@ async function demonstrateRealJuggler() {
     console.log('   インストール: node install-playwright-firefox.js');
     console.log('');
     
-    // ブラウザ起動とJuggler接続
     await controller.launch();
     
-    // 新しいページを作成
     await controller.createNewPage();
     
-    // example.comに移動
     await controller.navigateToPage('https://example.com');
     
-    // タイトルを取得
     const title = await controller.getPageTitle();
     
-    // スクリーンショットを保存
     const screenshot = await controller.takeScreenshot();
-    const screenshotPath = path.join(__dirname, 'juggler-real-screenshot.png');
-    fs.writeFileSync(screenshotPath, screenshot);
+    const screenshotPath = path.join(process.cwd(), 'juggler-real-screenshot.png');
+    await fs.writeFile(screenshotPath, screenshot);
     console.log(`Juggler: スクリーンショットを保存: ${screenshotPath}`);
     
     console.log('');
@@ -382,10 +346,11 @@ async function demonstrateRealJuggler() {
   } catch (error) {
     console.error('❌ Real Jugglerデモエラー:', error.message);
     
-    if (error.message.includes('見つかりません')) {
+    if (error.message.includes('PlaywrightのFirefox')) {
       console.log('');
-      console.log('💡 PlaywrightのFirefoxをインストールするには:');
+      console.log('💡 PlaywrightのFirefoxをインストールしてください:');
       console.log('   node install-playwright-firefox.js');
+      console.log('   または: npx playwright install firefox');
     }
     
     throw error;
@@ -394,9 +359,7 @@ async function demonstrateRealJuggler() {
   }
 }
 
-module.exports = { RealJugglerController, demonstrateRealJuggler };
-
 // 直接実行された場合
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   demonstrateRealJuggler().catch(console.error);
 }
