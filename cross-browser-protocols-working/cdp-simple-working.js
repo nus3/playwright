@@ -25,7 +25,7 @@ function createCDPController() {
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
     ];
-    
+
     return paths.find(p => existsSync(p));
   };
 
@@ -39,7 +39,7 @@ function createCDPController() {
         method: 'GET'
       };
 
-      const req = (urlObj.protocol === 'https:' 
+      const req = (urlObj.protocol === 'https:'
         ? import('https').then(m => m.default)
         : import('http').then(m => m.default)
       ).then(http => {
@@ -77,11 +77,11 @@ function createCDPController() {
   const setupMessageHandler = () => {
     ws.on('message', (data) => {
       const message = JSON.parse(data.toString());
-      
+
       if (process.env.DEBUG_PROTOCOL) {
         console.log('CDP receive:', JSON.stringify(message, null, 2));
       }
-      
+
       if (message.id && pendingMessages.has(message.id)) {
         const resolve = pendingMessages.get(message.id);
         pendingMessages.delete(message.id);
@@ -93,19 +93,19 @@ function createCDPController() {
   const sendCommand = async (method, params = {}) => {
     const id = ++messageId;
     const message = { id, method, params };
-    
+
     if (sessionId && method !== 'Target.attachToTarget' && method !== 'Target.createTarget') {
       message.sessionId = sessionId;
     }
-    
+
     if (process.env.DEBUG_PROTOCOL) {
       console.log('CDP send:', JSON.stringify(message, null, 2));
     }
-    
+
     return new Promise((resolve, reject) => {
       pendingMessages.set(id, resolve);
       ws.send(JSON.stringify(message));
-      
+
       setTimeout(() => {
         if (pendingMessages.has(id)) {
           pendingMessages.delete(id);
@@ -117,14 +117,14 @@ function createCDPController() {
 
   const launch = async () => {
     console.log('CDP: システムのChromeを起動中...');
-    
+
     const chromeExecutable = getChromeExecutablePath();
     if (!chromeExecutable) {
       throw new Error('Google Chromeが見つかりません。Chromeをインストールしてください。');
     }
-    
+
     console.log(`CDP: ${chromeExecutable} を使用`);
-    
+
     browserProcess = spawn(chromeExecutable, [
       '--headless=new',
       '--no-sandbox',
@@ -134,7 +134,7 @@ function createCDPController() {
       '--no-first-run',
       '--disable-features=PaintHolding',
       '--disable-extensions'
-    ], { 
+    ], {
       stdio: 'pipe'
     });
 
@@ -143,48 +143,48 @@ function createCDPController() {
     });
 
     await waitForCDP();
-    
+
     const wsEndpoint = await getCDPEndpoint();
     console.log('CDP: WebSocketエンドポイント取得成功');
-    
+
     ws = new WebSocket(wsEndpoint);
-    
+
     return new Promise((resolve, reject) => {
       ws.on('open', () => {
         console.log('CDP: WebSocket接続成功！');
         setupMessageHandler();
         resolve();
       });
-      
+
       ws.on('error', reject);
     });
   };
 
   const createNewPage = async () => {
-    const response = await sendCommand('Target.createTarget', { 
-      url: 'about:blank' 
+    const response = await sendCommand('Target.createTarget', {
+      url: 'about:blank'
     });
     targetId = response.result.targetId;
-    
+
     const attachResponse = await sendCommand('Target.attachToTarget', {
       targetId: targetId,
       flatten: true
     });
     sessionId = attachResponse.result.sessionId;
-    
+
     await sendCommand('Page.enable');
     await sendCommand('Runtime.enable');
-    
+
     console.log('CDP: 新しいページを作成しました');
   };
 
   const navigateToPage = async (url) => {
     console.log(`CDP: ${url} に移動中...`);
-    
+
     const response = await sendCommand('Page.navigate', { url });
-    
+
     await new Promise(resolve => setTimeout(resolve, 3000));
-    
+
     console.log(`CDP: ページ移動完了 (frameId: ${response.result.frameId})`);
     return response;
   };
@@ -194,7 +194,7 @@ function createCDPController() {
       expression: 'document.title',
       returnByValue: true
     });
-    
+
     const title = result.result.result.value;
     console.log(`CDP: ページタイトル = "${title}"`);
     return title;
@@ -204,7 +204,7 @@ function createCDPController() {
     const response = await sendCommand('Page.captureScreenshot', {
       format: 'png'
     });
-    
+
     const screenshotData = response.result.data;
     console.log('CDP: スクリーンショットを取得しました');
     return Buffer.from(screenshotData, 'base64');
@@ -214,7 +214,7 @@ function createCDPController() {
     if (ws) {
       ws.close();
     }
-    
+
     if (browserProcess) {
       browserProcess.kill('SIGTERM');
       await new Promise(r => setTimeout(r, 500));
@@ -222,7 +222,7 @@ function createCDPController() {
         browserProcess.kill('SIGKILL');
       }
     }
-    
+
     console.log('CDP: ブラウザを終了しました');
   };
 
@@ -239,24 +239,24 @@ function createCDPController() {
 // デモ実行関数
 export async function demonstrateSimpleCDP() {
   const controller = createCDPController();
-  
+
   try {
     console.log('=== Simple CDP (Chrome DevTools Protocol) 実動作デモ ===');
     console.log('');
-    
+
     await controller.launch();
-    
+
     await controller.createNewPage();
-    
+
     await controller.navigateToPage('https://example.com');
-    
+
     const title = await controller.getPageTitle();
-    
+
     const screenshot = await controller.takeScreenshot();
     const screenshotPath = path.join(process.cwd(), 'simple-cdp-screenshot.png');
     await fs.writeFile(screenshotPath, screenshot);
     console.log(`CDP: スクリーンショットを保存: ${screenshotPath}`);
-    
+
     console.log('');
     console.log('=== Simple CDP デモ完了 ===');
     console.log(`✅ 取得したタイトル: ${title}`);
@@ -264,7 +264,7 @@ export async function demonstrateSimpleCDP() {
     console.log('');
     console.log('💡 プロトコルメッセージを確認するには:');
     console.log('   DEBUG_PROTOCOL=1 node cdp-simple-working.js');
-    
+
   } catch (error) {
     console.error('❌ Simple CDPデモエラー:', error.message);
     throw error;

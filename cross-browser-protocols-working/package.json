@@ -6,7 +6,6 @@
   "main": "all-browsers-demo.js",
   "scripts": {
     "demo": "node all-browsers-demo.js",
-    "all": "node all-browsers-demo.js",
     "chrome": "node cdp-simple-working.js",
     "firefox": "node juggler-real-working.js",
     "safari": "node webkit-playwright-simple.js",
