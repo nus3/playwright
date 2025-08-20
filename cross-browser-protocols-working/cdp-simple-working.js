@@ -5,11 +5,8 @@
 
 import WebSocket from 'ws';
 import { spawn } from 'child_process';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync } from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const http = require('http');
 
 // CDP制御用の状態管理
 function createCDPController() {
@@ -29,13 +26,31 @@ function createCDPController() {
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
     ];
     
-    return paths.find(p => {
-      try {
-        require('fs').accessSync(p);
-        return true;
-      } catch {
-        return false;
-      }
+    return paths.find(p => existsSync(p));
+  };
+
+  const httpGet = (url) => {
+    return new Promise((resolve, reject) => {
+      const urlObj = new URL(url);
+      const options = {
+        hostname: urlObj.hostname,
+        port: urlObj.port,
+        path: urlObj.pathname,
+        method: 'GET'
+      };
+
+      const req = (urlObj.protocol === 'https:' 
+        ? import('https').then(m => m.default)
+        : import('http').then(m => m.default)
+      ).then(http => {
+        const request = http.request(options, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => resolve(data));
+        });
+        request.on('error', reject);
+        request.end();
+      });
     });
   };
 
@@ -51,16 +66,6 @@ function createCDPController() {
       await new Promise(r => setTimeout(r, 100));
     }
     throw new Error('CDPサーバーの起動タイムアウト');
-  };
-
-  const httpGet = (url) => {
-    return new Promise((resolve, reject) => {
-      http.get(url, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(data));
-      }).on('error', reject);
-    });
   };
 
   const getCDPEndpoint = async () => {
