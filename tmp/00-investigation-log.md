@@ -34,6 +34,31 @@ Playwrightがどのようにクロスブラウザ（Chrome、Safari、Firefox）
    - → 07-protocol-conversion-mechanisms.md
    - → 08-concrete-protocol-examples.md
 
+## 最新セッション（2025-09-11）の成果
+
+### 完了した調査
+- ✅ Playwrightの実行からブラウザ接続までの完全フロー
+  - → 31-browser-launch-flow-complete-analysis.md
+- ✅ クライアント-サーバーアーキテクチャの詳細理解
+  - → 33-client-server-architecture-explanation.md
+- ✅ ブラウザプロセス起動と通信プロトコルの詳細
+  - → 34-browser-launch-process-and-transport.md
+- ✅ WebKit初期調査
+  - → 32-webkit-webinspector-protocol-analysis.md
+- ✅ BiDiプロトコルの実装発見
+  - → 35-bidi-protocol-implementation.md
+
+## 次回の調査タスク
+→ 36-session-summary-and-next-tasks.md を参照
+
+### 優先度1: WebInspectorプロトコル詳細
+- pageProxyIdの実装
+- WebKitパッチの具体的内容
+
+### 優先度2: Jugglerプロトコル詳細
+- Firefox独自プロトコルの設計
+- CDPとの違いと利点
+
 ## 重要な発見まとめ
 
 ### Playwrightのクロスブラウザサポートの核心
@@ -48,6 +73,14 @@ Playwrightがどのようにクロスブラウザ（Chrome、Safari、Firefox）
 
 3. **PageDelegateパターンによるプロトコル変換**
    - 同一のメソッドシグネチャ
+
+4. **フィクスチャシステムによる依存性注入**
+   - テスト実行時の柔軟なブラウザ管理
+   - Worker単位でのリソース管理
+
+5. **BiDiプロトコルの実験的サポート**
+   - 将来の標準への準備
+   - _bidiChromium, _bidiFirefoxとして内部実装
    - 各ブラウザ固有のプロトコル呼び出しに内部変換
    - パラメータ・戻り値の正規化
 
