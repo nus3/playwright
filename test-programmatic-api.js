@@ -29,6 +29,53 @@ async function testBrowserLaunch() {
   console.log('Browser closed');
 }
 
+async function testCommunicationModes() {
+  console.log('\n=== 通信方式の指定テスト ===');
+
+  // 1. デフォルト（Pipe通信）
+  // console.log('\n1. デフォルト起動（Pipe通信）:');
+  // const browser1 = await chromium.launch({
+  //   headless: true,
+  // });
+  // console.log('  - 起動成功（Pipe通信使用）');
+  // await browser1.close();
+
+  // 2. CDPポート指定（WebSocket通信）
+  console.log('\n2. CDPポート指定（WebSocket通信）:');
+  const browser2 = await chromium.launch({
+    headless: false,
+    args: ['--remote-debugging-port=9222']  // CDPポートを明示的に指定
+  });
+  console.log('  - 起動成功（WebSocket通信使用、ポート9222）');
+
+  const context = await browser2.newContext();
+  const page = await context.newPage();
+
+  // 3. ページにアクセス
+  await page.goto('https://playwright.dev');
+  // await browser2.close();
+
+  // 3. cdpPortオプションを使用（WebSocket通信）
+  // console.log('\n3. cdpPortオプション使用（WebSocket通信）:');
+  // try {
+  //   const browser3 = await chromium.launch({
+  //     headless: true,
+  //     // cdpPort: 0  // ランダムポートでCDP有効化（内部オプション）
+  //     // 注: cdpPortは型定義には含まれていないが、内部的に使用可能
+  //     args: ['--remote-debugging-port=0']  // 代替方法
+  //   });
+  //   console.log('  - 起動成功（WebSocket通信使用、ランダムポート）');
+  //   await browser3.close();
+  // } catch (error) {
+  //   console.log('  - エラー:', error.message);
+  // }
+
+  // console.log('\n通信方式の確認方法:');
+  // console.log('  - デフォルトはPipe通信（--remote-debugging-pipe）');
+  // console.log('  - --remote-debugging-port指定時はWebSocket通信');
+  // console.log('  - DEBUG=pw:protocol環境変数でプロトコル通信を確認可能');
+}
+
 async function inspectPlaywrightObject() {
   console.log('\n=== Playwrightオブジェクトの構造を確認 ===');
 
@@ -68,9 +115,10 @@ async function traceInternalFlow() {
 // 実行
 (async () => {
   try {
-    await inspectPlaywrightObject();
-    await testBrowserLaunch();
-    await traceInternalFlow();
+    // await inspectPlaywrightObject();
+    // await testBrowserLaunch();
+    await testCommunicationModes();
+    // await traceInternalFlow();
   } catch (error) {
     console.error('Error:', error);
   }

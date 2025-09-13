@@ -271,40 +271,59 @@ PipeTransport または WebSocketTransport を作成
 
 プロトコルの選択は「どの BrowserType クラスを使うか」の時点で決まってる
 
-## その他
+## Playwright と Chrome
 
-以下の記載から手元での確認もできそう？
+playwright の launch 時のオプションで、chromium の起動時のオプションを切り替えている
+https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/chromium/chromium.ts#L286-L293
+
+- `--remote-debugging-port={cdpPort}`
+- `--remote-debugging-pipe`
+
+実際に playwright とブラウザの通信をどうするかは、以下らへんで決めている
+https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/browserType.ts#L263-L272
+
+- cdpPort が指定されている場合は WebSocketTransport
+- デフォルトは PipeTransport がサポートされている場合は PipeTransport
+
+stdio はこんな感じらしい
+
+- stdio[0]: 'ignore' = stdin（標準入力）- ブラウザへの入力は不要なので無視
+- stdio[1]: 'pipe' = stdout（標準出力）- ブラウザのログ出力用
+- stdio[2]: 'pipe' = stderr（標準エラー出力）- エラーメッセージ用
+- stdio[3]: 'pipe' = カスタムパイプ（書き込み用） - Playwright→ ブラウザへのコマンド送信
+- stdio[4]: 'pipe' = カスタムパイプ（読み込み用） -　ブラウザ →Playwright へのレスポンス受信
+
+WebSocketTransport か PipeTransport かは通信の方式の違いであって、コマンドはどちらも CDP コマンドを送っている？
+
+WebSocketTransport
+https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/transport.ts#L188-L190
+
+PiPeTransport
+https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/pipeTransport.ts#L57-L62
+
+ProtocolRequest の型
+https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/transport.ts#L38-L43
+
+接続クラスはブラウザごとに異なる
+
+- Chromium: CRConnection
+- Firefox: FFConnection
+- WebKit: WKConnection
+
+Chromium の場合は ProtocolRequest をそのまま send してそう
+https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/chromium/crConnection.ts#L62-L70
+
+どのブラウザでもブラウザ操作には method 名と params、id は必要そうなので、ProtocolRequest の型は共通で良さそう
+
+https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md
+に Chrome の起動オプションの記載がある
 
 ```md
-## 2. プログラマティック API のエントリーポイント
-
-### 2.1 パッケージ構造
-
-packages/playwright-core/index.js
-↓ require('./lib/inprocess')
-packages/playwright-core/src/inProcessFactory.ts
-↓ createInProcessPlaywright()
-
-### 2.2 Playwright オブジェクトの初期化
-
-`createInProcessPlaywright()`で以下が実行される：
-
-1. **サーバー側 Playwright オブジェクト作成**
-
-   - `packages/playwright-core/src/server/playwright.ts:54-75`
-   - Chromium、Firefox、WebKit の各 BrowserType インスタンスが作成される
-
-2. **クライアント-サーバー間通信の設定**
-
-   - `inProcessFactory.ts:28-34`
-   - DispatcherConnection と Connection で双方向通信を確立
-
-3. **各ブラウザタイプへのサーバーランチャー設定**
-   - `inProcessFactory.ts:41-46`
-
-`playwrightAPI.chromium._serverLauncher = new BrowserServerLauncherImpl('chromium');`
-`playwrightAPI.firefox._serverLauncher = new BrowserServerLauncherImpl('firefox');`
-`playwrightAPI.webkit._serverLauncher = new BrowserServerLauncherImpl('webkit');`
+- --remote-debugging-pipe: more secure than using protocol over a websocket
+- --remote-debugging-port=…: With a value of 0, Chrome will automatically select a useable port and will set navigator.webdriver to true.
 ```
 
-`node test-programmatic-api.js`で試せるようにしてくれた
+Chrome DevTools Protocol (CDP)
+https://chromedevtools.github.io/devtools-protocol/
+
+## Playhwright と
