@@ -329,7 +329,12 @@ https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-
 Chrome DevTools Protocol (CDP)
 https://chromedevtools.github.io/devtools-protocol/
 
+Page.navigate
+https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-navigate
+
 Chrome に関しては`examples_nus3/trace-cdp-all-in-one.mjs`でどのようなコマンドを使ってブラウザ操作をしているのか確認できる
+
+`DEBUG=pw:protocol`を指定して Playwright を実行することで、Playwright とブラウザ間でどのようなコマンドを実行し、どのようなレスポンスが返ってきているかを確認できる
 
 ## Playhwright と Firefox
 
