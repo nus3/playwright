@@ -1,6 +1,6 @@
 // PlaywrightのプログラマティックAPIを直接使用するサンプル
 
-const { chromium, firefox, webkit } = require('./packages/playwright-core');
+const { chromium, firefox, webkit } = require('../packages/playwright-core/types/types');
 
 async function testBrowserLaunch() {
   console.log('=== Chromiumの起動テスト ===');
@@ -80,7 +80,7 @@ async function inspectPlaywrightObject() {
   console.log('\n=== Playwrightオブジェクトの構造を確認 ===');
 
   // playwright-coreから直接インポート
-  const playwright = require('./packages/playwright-core');
+  const playwright = require('../packages/playwright-core/types/types');
 
   console.log('playwright object keys:', Object.keys(playwright));
   console.log('chromium type:', typeof playwright.chromium);
@@ -96,7 +96,7 @@ async function inspectPlaywrightObject() {
 async function traceInternalFlow() {
   console.log('\n=== 内部フローのトレース ===');
 
-  const playwright = require('./packages/playwright-core');
+  const playwright = require('../packages/playwright-core/types/types');
 
   // launch時の内部処理を観察するため、簡単なログを仕込む
   const originalLaunch = playwright.chromium.launch;

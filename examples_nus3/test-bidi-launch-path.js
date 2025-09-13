@@ -59,23 +59,23 @@ console.log('✓ プロトコルの選択は「どのBrowserTypeを使うか」�
 
 // 実際に確認
 async function verifyBidiImplementation() {
-  const playwright = require('./packages/playwright-core');
-  
+  const playwright = require('../packages/playwright-core/types/types');
+
   console.log('=== 実際のオブジェクトで確認 ===\n');
-  
+
   // クラス名の確認
   console.log('playwright.chromium のクラス:', playwright.chromium.constructor.name);
   console.log('playwright._bidiChromium のクラス:', playwright._bidiChromium?.constructor.name || 'undefined');
-  
+
   // 同じlaunchメソッドでも実装が異なる
   console.log('\nlaunchメソッドの実装:');
-  console.log('chromium.launch === _bidiChromium.launch?', 
+  console.log('chromium.launch === _bidiChromium.launch?',
     playwright.chromium.launch === playwright._bidiChromium?.launch);
-  
+
   // プロトタイプチェーンの確認
   if (playwright._bidiChromium) {
     console.log('\nプロトタイプチェーン:');
-    console.log('_bidiChromium instanceof BrowserType?', 
+    console.log('_bidiChromium instanceof BrowserType?',
       Object.getPrototypeOf(Object.getPrototypeOf(playwright._bidiChromium)).constructor.name);
   }
 }
