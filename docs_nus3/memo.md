@@ -271,6 +271,36 @@ PipeTransport または WebSocketTransport を作成
 
 プロトコルの選択は「どの BrowserType クラスを使うか」の時点で決まってる
 
+## Playwright のブラウザについて
+
+https://github.com/microsoft/playwright/blob/main/docs/src/browsers.md
+
+Playwright を動作させるには特定バージョンのブラウザのバイナリが必要で、これらのブラウザのインストールには Playwright CLI を使用する必要があります。
+
+Playwright はリリースごとにサポートするブラウザのバージョンを更新
+
+https://github.com/microsoft/playwright/blob/main/docs/src/browsers.md#google-chrome--microsoft-edge
+
+Chrome をダウンロードして使用できるか、実行環境上に Chrome があればそれを直接利用できる
+
+https://github.com/microsoft/playwright/blob/main/docs/src/browsers.md#firefox
+
+> Playwright doesn't work with the branded version of Firefox since it relies on patches.
+
+firefox はパッチに依存しているので、playwright では通常の Firefox は動作しない
+
+https://github.com/microsoft/playwright/blob/main/docs/src/browsers.md#webkit
+
+> Playwright doesn't work with the branded version of Safari since it relies on patches.
+
+Playwright は通常の Safari では動作しない、パッチに依存している
+
+https://github.com/microsoft/playwright/blob/main/docs/src/browsers.md#install-behind-a-firewall-or-a-proxy
+
+> By default, Playwright downloads browsers from Microsoft's CDN.
+
+デフォルトでは Microsoft の CDN からブラウザをダウンロードする
+
 ## Playwright と Chrome
 
 事前に `npx playwright install chromium` を実行して Chromium をインストールする
@@ -457,3 +487,97 @@ tmp/46-bootstrap-diff-application-process.md
 
 事前に `npx playwright install webkit` を実行して WebKit をインストールする
 examples_nus3/README.md を見ると実際にどのようなコマンドが実行されているかを確認できる
+
+パッチの diff が大量
+パッチでは以下の主要なコンポーネントが追加される
+（GitHub 上だと差分が大量すぎてリンク貼れず。21000 行ぐらいある）
+
+- `UIProcess/InspectorPlaywrightAgent.cpp` - Playwright プロトコルハンドラー
+- `UIProcess/RemoteInspectorPipe.cpp` - パイプ通信の実装
+- `UIProcess/WebPageInspectorEmulationAgent.cpp` - エミュレーション機能
+- `UIProcess/WebPageInspectorInputAgent.cpp` - 入力イベント処理
+- `UIProcess/Inspector/Agents/InspectorScreencastAgent.cpp` - スクリーンキャスト機能
+
+これらは WebKit のソースコードにパッチを適用する際に新規作成される
+
+browser_patches/webkit/patches/bootstrap.diff を見ると以下のように Playwright 用のコンポーネントが登録されている
+
+```diff
++++ b/Source/JavaScriptCore/inspector/protocol/Playwright.json
+```
+
+この`Playwright.json`では Playwright プロトコルのコマンドとイベントが定義されている
+
+```json
+{
+  "domain": "Playwright", // ドメイン名
+  "commands": [
+    {
+      "name": "navigate", // コマンド名
+      "parameters": [
+        { "name": "url", "type": "string" },
+        { "name": "pageProxyID", "type": "string" },
+        { "name": "frameID", "type": "string", "optional": true },
+        { "name": "referrer", "type": "string", "optional": true }
+      ],
+      "returns": [
+        { "name": "navigationID", "type": "string", "optional": true }
+      ]
+    }
+  ]
+}
+```
+
+`InspectorPlaywrightAgent`が実装を担当
+
+```cpp
+// InspectorPlaywrightAgent::navigate (bootstrap.diff line 13735-13778)
+void InspectorPlaywrightAgent::navigate(const String& url, const String& pageProxyID, ...)
+{
+    // 1. WebCore::ResourceRequestを作成（WebKitの内部クラス）
+    auto resourceRequest = WebCore::ResourceRequest(URL { url });
+
+    // 2. HTTPリファラーを設定（必要な場合）
+    if (!!referrer)
+        resourceRequest.setHTTPReferrer(referrer);
+
+    // 3. WebPageInspectorControllerに委譲
+    pageProxyChannel->page().inspectorController().navigate(
+        WTFMove(resourceRequest),
+        frame,
+        callback
+    );
+}
+```
+
+tmp/50-webkit-navigation-internal-api-deep-dive.md や tmp/51-code-evidence-locations.md を参照
+
+webkit 起動時に`--inspector-pipe`オプションが渡される
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/webkit/webkit.ts#L70
+
+boostrap.diff では`--inspector-pipe`オプションがあった場合に、pipe 通信を行うように指示してそう
+
+```diff
++    { "inspector-pipe", 0, 0, G_OPTION_ARG_NONE, &inspectorPipe, "Open pipe connection to the remote inspector", NULL },
+```
+
+以下でも--inspector-pipe の記述がある
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/webkit/embedder/Playwright/mac/AppDelegate.m#L129-L130
+
+Playwright では macOS 専用のブラウザ制御に AppDelegate.m が使われていて、macOS で firefox をコマンドラインで起動するときに使われている？
+
+```
+playwright (Node.js)
+    ↓ stdio pipe
+WebKit Process (macOS)
+    ↓ --inspector-pipe
+AppDelegate.m
+    ↓ [_WKBrowserInspector initializeRemoteInspectorPipe]
+RemoteInspectorPipe
+    ↓
+InspectorPlaywrightAgent
+    ↓ delegate callbacks
+AppDelegate (_WKBrowserInspectorDelegate)
+    ↓
+WKWebView / BrowserWindowController
+```
