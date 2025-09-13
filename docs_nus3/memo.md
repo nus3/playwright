@@ -341,6 +341,118 @@ Chrome に関しては`examples_nus3/trace-cdp-all-in-one.mjs`でどのような
 事前に `npx playwright install firefox` を実行して Firefox をインストールする
 examples_nus3/README.md を見ると実際にどのようなコマンドが実行されているかを確認できる
 
+playwright によって firefox が起動される際に`-juggler-pipe`オプションが渡される
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/firefox/firefox.ts#L87
+
+Juggler では`'@mozilla.org/juggler/remotedebuggingpipe;1'`を使ってる？
+Firefox には remotedebuggingpipe というものがある？
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/components/Juggler.js#L116
+
+puppeteer から Juggler っていうリポジトリが公開されている
+これは Firefox ブラウザをフォークしたもので Juggler remote debug protocol を実装している
+https://github.com/puppeteer/juggler
+
+Firefox 公式でも Remote Protocol のドキュメントがある
+https://wiki.mozilla.org/WebDriver/RemoteProtocol
+ここの Playwright の記載がある。
+
+> Can I use Playwright with Firefox?
+> Playwright communicates with a different Firefox fork, similarly to the deprecated puppeteer-firefox. The Firefox binary downloaded when installing Playwright is maintained by the Microsoft Playwright team, not Mozilla. In the future, Playwright should be able to interact with official Firefox binaries along the same lines as Puppeteer.
+
+Playwright インストール時にダウンロードされる Firefox のバイナリは Mozilla ではなく、Microsoft Playwright チームによってメンテナンスされている
+
+> This section describes the Mozilla Remote Debugging Protocol Stream Transport, a transport layer suitable for carrying Mozilla debugging protocol packets over a reliable, ordered byte stream, like a TCP/IP stream or a pipe.
+
+https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#stream-transport
+
+↑Firefox での Remote Debugging Protocol のドキュメント？pip 使うのが良いよって記載されてる
+
+XPCOM
+Firefox の内部で使われるコンポーネント技術
+異なる言語から Firefox の機能を利用できる？（Claude さん調べ）
+https://ja.wikipedia.org/wiki/XPCOM
+
+JS から C++で実装されたブックマーク機能を利用する場合は以下のようなイメージらしい
+
+```js
+let bookmarkService = Components.classes[
+  "@mozilla.org/bookmark-service;1"
+].getService(Components.interfaces.nsIBookmarkService);
+
+let bookmark = bookmarkService.createBookmark();
+bookmark.setTitle("Mozilla Firefox");
+bookmark.url = "https://www.mozilla.org";
+```
+
+以下で Firefox 起動時に Juggler コンポーネントが登録され、`-juggler-pipe`フラグで有効化?
+https://github.com/microsoft/playwright/blob/main/browser_patches/firefox/juggler/components/components.conf
+
+以下で、プロファイル初期化後に Juggler が起動
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/components/components.conf#L12
+
+以下でコマンドラインを observe しつつ
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/components/Juggler.js#L72
+
+`juggler-pipe`フラグを起動時に待たされていれば、`final-ui-startup`を observe
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/components/Juggler.js#L78`
+
+`final-ui-startup`では`@mozilla.org/juggler/remotedebuggingpipe;1'`で C++コンポーネントを取得し、pipe での通信を設定しつつ、Firefox を起動してそう
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/components/Juggler.js#L114-L147
+`final-ui-startup`に関しては tmp/44-final-ui-startup-detailed-explanation.md を参照
+
+`@mozilla.org/juggler/remotedebuggingpipe;1'`は以下で登録されている
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/pipe/components.conf#L10
+
+`browser_patches/firefox/patches/bootstrap.diff`により、firefox ビルド時にパッチが適用され
+https://github.com/microsoft/playwright/blob/main/browser_patches/firefox/patches/bootstrap.diff
+juggler-pipe が有効な場合、stdio3 と stdio4 がパイプとして設定
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/patches/bootstrap.diff#L77-L87
+
+`navigateFrame`で検索すると、各ブラウザではどのようなコマンドを送るかの違いか確認できる
+Firefox の場合、`Page.navigate`コマンドを送っている
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/firefox/ffPage.ts#L327-L330
+
+BiDi の場合、`browsingContext.navigate`コマンド
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/bidi/bidiPage.ts#L290
+
+Webkit の場合、`Playwright.navigate`コマンド
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/webkit/wkPage.ts#L518
+
+Firefox に送信した`Page.navigate`コマンドを Juggler が受け取って
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/protocol/PageHandler.js#L388
+Firefox の内部 API(browsingContext.loadURI)を実行している
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/browser_patches/firefox/juggler/protocol/PageHandler.js#L419-L427
+
+BrowsingContext::LoadURI の実装はありそう？
+https://searchfox.org/firefox-main/rev/0b5dfaf1a1b39b0ddbd2f38a14cb086a7b80df06/docshell/base/BrowsingContext.cpp#1964
+
+1. firefox 起動時に`browser_patches/firefox/patches/bootstrap.diff`でパッチが適用
+2. `-juggler-pipe`フラグが渡されると、Juggler コンポーネントの初期化と pipe による通信が設定される
+3. Playwright が pipe を通してコマンドを実行
+4. Juggler がコマンドを受け取り、Firefox の内部 API を呼び出してブラウザ操作を実行
+
+### npx playwright install firefox では何が行われているのか
+
+tmp/45-npx-playwright-install-firefox-flow.md を参照
+
+Playwright が用意する CDN からブラウザをダウンロード
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/registry/index.ts#L44-L48
+
+https://github.com/microsoft/playwright/blob/20023ab33a1dc04db2d5a3f753760eef33339e73/packages/playwright-core/src/server/registry/index.ts#L1199C9-L1211
+
+この時、ダウンロードされた Firefox は Juggler パッチ（`browser_patches/firefox/patches/bootstrap.diff`）が適用されたビルド済みのバイナリ
+
+```md
+1. **事前ビルド**: Playwright チームが以下を実施
+   - Mozilla Firefox のソースコードを取得
+   - Juggler パッチ（`browser_patches/firefox/patches/bootstrap.diff`）を適用
+   - 各プラットフォーム向けにビルド
+   - CDN にアップロード
+```
+
+パッチの適用については以下を参照
+tmp/46-bootstrap-diff-application-process.md
+
 ## Playwright と WebKit
 
 事前に `npx playwright install webkit` を実行して WebKit をインストールする
