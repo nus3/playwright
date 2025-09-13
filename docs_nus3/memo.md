@@ -273,6 +273,9 @@ PipeTransport または WebSocketTransport を作成
 
 ## Playwright と Chrome
 
+事前に `npx playwright install chromium` を実行して Chromium をインストールする
+examples_nus3/README.md を見ると実際にどのようなコマンドが実行されているかを確認できる
+
 playwright の launch 時のオプションで、chromium の起動時のオプションを切り替えている
 https://github.com/microsoft/playwright/blob/60a8032faf6f8b25ce353b3dd51d783044d7058d/packages/playwright-core/src/server/chromium/chromium.ts#L286-L293
 
@@ -326,4 +329,14 @@ https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-
 Chrome DevTools Protocol (CDP)
 https://chromedevtools.github.io/devtools-protocol/
 
-## Playhwright と
+Chrome に関しては`examples_nus3/trace-cdp-all-in-one.mjs`でどのようなコマンドを使ってブラウザ操作をしているのか確認できる
+
+## Playhwright と Firefox
+
+事前に `npx playwright install firefox` を実行して Firefox をインストールする
+examples_nus3/README.md を見ると実際にどのようなコマンドが実行されているかを確認できる
+
+## Playwright と WebKit
+
+事前に `npx playwright install webkit` を実行して WebKit をインストールする
+examples_nus3/README.md を見ると実際にどのようなコマンドが実行されているかを確認できる
