@@ -581,3 +581,7 @@ AppDelegate (_WKBrowserInspectorDelegate)
     ↓
 WKWebView / BrowserWindowController
 ```
+
+## Playwright と WebDriver BiDi
+
+tmp/55-bidi-protocol-shared-implementation.md を参照
