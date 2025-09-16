@@ -16,6 +16,7 @@
 import playwright from '../packages/playwright-core/index.js';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { importantCommands } from './important-commands.mjs';
 
 const { _bidiFirefox, firefox } = playwright;
 
@@ -38,7 +39,7 @@ if (isChildProcess) {
     });
 
     const page = await browser.newPage();
-    await page.goto('https://playwright.dev');
+    await page.goto('https://example.com');
     await page.waitForTimeout(3000);
     await browser.close();
 
@@ -52,7 +53,7 @@ if (isChildProcess) {
 
   console.log('🔍 BiDi Protocol Tracer - Firefox\n');
   console.log('=' .repeat(60) + '\n');
-  console.log('Firefoxを起動して https://playwright.dev にアクセスします...\n');
+  console.log('Firefoxを起動して https://example.com にアクセスします...\n');
 
   // 子プロセスとして自分自身を起動
   const child = spawn('node', [__filename], {
@@ -86,20 +87,8 @@ if (isChildProcess) {
             const module = data.method.split('.')[0];
             modules[module] = (modules[module] || 0) + 1;
 
-            // 重要なコマンドを表示
-            const important = [
-              'session.new',
-              'session.subscribe',
-              'browser.createUserContext',
-              'browsingContext.create',
-              'browsingContext.navigate',
-              'browsingContext.setViewport',
-              'script.evaluate',
-              'script.callFunction',
-              'script.addPreloadScript',
-              'network.addIntercept',
-              'browser.close'
-            ];
+            // 共通ファイルからインポートした重要コマンドリストを使用
+            const important = importantCommands;
 
             if (important.includes(data.method)) {
               // メソッド名を表示

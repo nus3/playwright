@@ -16,7 +16,7 @@ async function test() {
   });
   
   const page = await browser.newPage();
-  await page.goto('https://playwright.dev');
+  await page.goto('https://example.com');
   await page.waitForTimeout(2000);
   await browser.close();
   

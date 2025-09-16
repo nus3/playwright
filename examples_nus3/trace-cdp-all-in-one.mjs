@@ -16,6 +16,7 @@
 import playwright from '../packages/playwright-core/index.js';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { importantCommands } from './important-commands.mjs';
 
 const { chromium } = playwright;
 
@@ -35,7 +36,7 @@ if (isChildProcess) {
     });
 
     const page = await browser.newPage();
-    await page.goto('https://playwright.dev');
+    await page.goto('https://example.com');
     await page.waitForTimeout(3000);
     await browser.close();
 
@@ -49,7 +50,7 @@ if (isChildProcess) {
 
   console.log('🔍 CDP Command Tracer (All-in-One)\n');
   console.log('=' .repeat(60) + '\n');
-  console.log('ブラウザを起動して https://playwright.dev にアクセスします...\n');
+  console.log('ブラウザを起動して https://example.com にアクセスします...\n');
 
   // 子プロセスとして自分自身を起動
   const child = spawn('node', [__filename], {
@@ -84,18 +85,8 @@ if (isChildProcess) {
             domains[domain] = (domains[domain] || 0) + 1;
 
             // 重要なコマンドを表示
-            const important = [
-              'Browser.getVersion',
-              'Target.setAutoAttach',
-              'Target.createTarget',
-              'Target.createBrowserContext',
-              'Page.enable',
-              'Page.navigate',
-              'Page.getFrameTree',
-              'Runtime.enable',
-              'Runtime.evaluate',
-              'Network.enable'
-            ];
+            // 共通ファイルからインポートした重要コマンドリストを使用
+            const important = importantCommands;
 
             if (important.includes(data.method)) {
               // メソッド名を表示

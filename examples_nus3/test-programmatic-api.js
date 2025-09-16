@@ -18,7 +18,7 @@ async function testBrowserLaunch() {
   const page = await context.newPage();
 
   // 3. ページにアクセス
-  await page.goto('https://playwright.dev');
+  await page.goto('https://example.com');
   console.log('Page title:', await page.title());
 
   // 4. 少し待機（確認用）
@@ -52,7 +52,7 @@ async function testCommunicationModes() {
   const page = await context.newPage();
 
   // 3. ページにアクセス
-  await page.goto('https://playwright.dev');
+  await page.goto('https://example.com');
   // await browser2.close();
 
   // 3. cdpPortオプションを使用（WebSocket通信）

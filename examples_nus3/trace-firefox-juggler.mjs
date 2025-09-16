@@ -11,6 +11,7 @@
 import playwright from '../packages/playwright-core/index.js';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { importantCommands } from './important-commands.mjs';
 
 const { firefox } = playwright;
 
@@ -30,7 +31,7 @@ if (isChildProcess) {
     });
 
     const page = await browser.newPage();
-    await page.goto('https://playwright.dev');
+    await page.goto('https://example.com');
     await page.waitForTimeout(3000);
     await browser.close();
 
@@ -44,7 +45,7 @@ if (isChildProcess) {
 
   console.log('🦊 Firefox Juggler Protocol Tracer\n');
   console.log('=' .repeat(60) + '\n');
-  console.log('Firefoxを起動して https://playwright.dev にアクセスします...\n');
+  console.log('Firefoxを起動して https://example.com にアクセスします...\n');
   console.log('📝 Jugglerは、Playwrightが独自開発したFirefox用プロトコルです\n');
 
   // 子プロセスとして自分自身を起動
@@ -79,21 +80,8 @@ if (isChildProcess) {
             const domain = data.method.split('.')[0];
             domains[domain] = (domains[domain] || 0) + 1;
 
-            // Firefox/Juggler特有の重要なコマンドを表示
-            const important = [
-              'Browser.enable',
-              'Browser.getInfo',
-              'Browser.newPage',
-              'Screencast.startVideoRecording',
-              'Page.enable',
-              'Page.navigate',
-              'Page.setViewport',
-              'Page.getContentFrame',
-              'Runtime.enable',
-              'Runtime.evaluate',
-              'Network.enable',
-              'Target.attachToTarget'
-            ];
+            // 共通ファイルからインポートした重要コマンドリストを使用
+            const important = importantCommands;
 
             if (important.includes(data.method) || 
                 data.method.startsWith('Browser.') ||
